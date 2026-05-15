@@ -334,8 +334,8 @@ def insert_transaction(data: dict, category: str = None, dry_run: bool = False) 
         # Insert transaction
         cursor.execute("""
             INSERT INTO transactions (category_id, amount, type, description,
-                                     transaction_date, payment_method, merchant, notes, tags)
-            VALUES (%s, %s, 'expense', %s, %s, %s, %s, %s, %s)
+                                     transaction_date, payment_method, merchant, notes, tags, telegram_id)
+            VALUES (%s, %s, 'expense', %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (
             category_id,
@@ -345,7 +345,8 @@ def insert_transaction(data: dict, category: str = None, dry_run: bool = False) 
             data.get('payment_method', 'other'),
             merchant[:100] if merchant else 'Unknown',
             notes[:500],
-            ["receipt", "hermes-llm", data.get('confidence', 'unknown')]
+            ["receipt", "hermes-llm", data.get('confidence', 'unknown')],
+            552378634  # telegram_id
         ))
         conn.commit()
         tx_id = cursor.fetchone()[0]

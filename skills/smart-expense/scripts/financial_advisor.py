@@ -83,6 +83,7 @@ def get_transaction_data(tx_id: str):
         cursor.execute("""
             SELECT 
                 t.id,
+                t.telegram_id,
                 t.transaction_date,
                 t.amount,
                 t.type,
@@ -117,7 +118,7 @@ def get_transaction_data(tx_id: str):
         return None
 
 
-def get_transactions_by_month(year: int, month: int):
+def get_transactions_by_month(year: int, month: int, telegram_id: int = 552378634):
     """Fetch all transactions for a specific month."""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -132,6 +133,7 @@ def get_transactions_by_month(year: int, month: int):
         cursor.execute("""
             SELECT 
                 t.id,
+                t.telegram_id,
                 t.transaction_date,
                 t.amount,
                 t.type,
@@ -145,7 +147,8 @@ def get_transactions_by_month(year: int, month: int):
                 c.type as category_type
             FROM transactions t
             JOIN categories c ON c.id = t.category_id
-            WHERE t.transaction_date >= %s 
+            WHERE t.telegram_id = %s
+              AND t.transaction_date >= %s 
               AND t.transaction_date < %s
             ORDER BY t.transaction_date DESC
         """, (start_date, end_date))
@@ -162,7 +165,7 @@ def get_transactions_by_month(year: int, month: int):
         return []
 
 
-def get_multi_month_data(months_back: int = 3):
+def get_multi_month_data(months_back: int = 3, telegram_id: int = 552378634):
     """Fetch transactions for multiple months for pattern analysis."""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -174,6 +177,7 @@ def get_multi_month_data(months_back: int = 3):
         cursor.execute("""
             SELECT 
                 t.id,
+                t.telegram_id,
                 t.transaction_date,
                 t.amount,
                 t.type,
@@ -187,7 +191,8 @@ def get_multi_month_data(months_back: int = 3):
                 c.type as category_type
             FROM transactions t
             JOIN categories c ON c.id = t.category_id
-            WHERE t.transaction_date >= %s
+            WHERE t.telegram_id = %s
+              AND t.transaction_date >= %s
             ORDER BY t.transaction_date DESC
         """, (start_date.strftime('%Y-%m-%d'),))
         
@@ -518,6 +523,7 @@ def main():
             cursor.execute("""
                 SELECT id FROM transactions 
                 WHERE llm_comment IS NULL
+                  AND telegram_id = %s
                 ORDER BY transaction_date DESC
             """)
             

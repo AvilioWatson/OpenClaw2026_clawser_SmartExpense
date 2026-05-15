@@ -1,12 +1,12 @@
 ---
 name: smart-expense
 description: "Use when managing a Smart Expense PostgreSQL database — CRUD transactions, categories, reports, and budget tracking. Covers connection, queries, and best practices."
-version: 1.2.0
+version: 1.3.0
 author: zuzu
 license: MIT
 metadata:
   hermes:
-    tags: [finance, expense-tracking, postgresql, database, smart-expense, receipt-parsing]
+    tags: [finance, expense-tracking, postgresql, database, smart-expense, receipt-parsing, authentication, token, login-token]
     related_skills: []
 ---
 
@@ -24,6 +24,7 @@ The `smart_expense` database tracks income & expense transactions organized by c
 
 ## When to Use
 
+- User sends **`/login-token`** → generate a new auth token and return it immediately
 - User asks to **add / view / edit / delete** a transaction or category
 - User wants a **spending report** (monthly, by category, by merchant)
 - User wants to **manage categories** (add, rename, archive)
@@ -31,6 +32,44 @@ The `smart_expense` database tracks income & expense transactions organized by c
 - User asks about **database schema** or **connection details**
 
 > **Don't use for:** general PostgreSQL administration unrelated to smart_expense.
+
+---
+
+## `/login-token` Handler
+
+When the user sends the slash command `/login-token`, generate a **new** cryptographically secure token and return it immediately.
+
+### Steps
+
+1. **Determine the Telegram ID** from the conversation context (available in message metadata on Telegram gateway). For this user (zuzu), the Telegram ID is `552378634`.
+
+2. **Run** the token generation script:
+   ```
+   python3 ~/.hermes/skills/productivity/smart-expense/scripts/generate_token.py <telegram_id>
+   ```
+
+3. **Capture the output** and return the token to the user.
+
+4. **Bilingual response**: respond in both English and Indonesian when returning the token.
+
+### Response Template
+
+```
+🔑 Token baru berhasil dibuat!
+
+Token     : `{token}`
+User ID   : {telegram_id}
+Created   : {timestamp}
+
+📌 Gunakan untuk autentikasi API:
+   Authorization: Bearer {token}
+```
+
+### Important Rules
+
+- **Always generate a NEW token each time** — never reuse an existing one
+- **Don't list existing tokens** — only return the newly generated one
+- **Token is stored** in the `tokens` table automatically by the script
 
 ---
 
@@ -110,6 +149,98 @@ Migrations live at:
 
 **Income (5):** Salary, Freelance, Investment, Gift, Other Income
 **Expense (10):** Food & Drinks, Transportation, Shopping, Entertainment, Bills & Utilities, Health, Education, Housing, Travel, Other Expense
+
+### Table: `tokens`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| telegram_id | BIGINT | Telegram user ID (not null) |
+| token | VARCHAR(255) | Authentication token (PK, not null) |
+| created_at | TIMESTAMPTZ | Auto-set via default `now()` |
+
+**PK:** `token` (unique token string)
+**Index:** `idx_tokens_telegram_id` on `telegram_id`
+
+---
+
+## Authentication Token Management
+
+The `tokens` table stores API authentication tokens linked to Telegram user IDs. Each token is a cryptographically secure random string used for Bearer token authentication.
+
+### Generate a Token
+
+Use the bundled script to generate and insert a token in one step:
+
+```bash
+# Generate a 32-char token for your Telegram ID (default: 552378634)
+python3 ~/.hermes/skills/productivity/smart-expense/scripts/generate_token.py
+
+# Generate for a specific Telegram ID
+python3 ~/.hermes/skills/productivity/smart-expense/scripts/generate_token.py 123456789
+
+# Custom token length (64 chars)
+python3 ~/.hermes/skills/productivity/smart-expense/scripts/generate_token.py 123456789 --length 64
+
+# Quiet mode — just print the token (useful for scripts)
+python3 ~/.hermes/skills/productivity/smart-expense/scripts/generate_token.py --quiet
+```
+
+**Sample output:**
+```
+✅ Token generated and saved!
+   Telegram ID : 552378634
+   Token       : aB3xK9mN2pQ5rT7vW1yZ4cE6fH8jL0sD
+   Length      : 32 chars
+   Created at  : 2026-05-15 19:30:00 UTC
+
+🔐 Use this token for API authentication:
+   Authorization: Bearer aB3xK9mN2pQ5rT7vW1yZ4cE6fH8jL0sD
+```
+
+### Manual SQL Approach
+
+```bash
+# Generate a 32-char random token and insert
+PGPASSWORD=pg123 psql -h localhost -U postgres -d smart_expense -c "
+INSERT INTO tokens (telegram_id, token)
+VALUES (
+  552378634,
+  encode(gen_random_bytes(24), 'hex')
+);
+"
+
+# List all tokens
+PGPASSWORD=pg123 psql -h localhost -U postgres -d smart_expense -c "
+SELECT telegram_id, LEFT(token, 16) || '...' AS token_preview,
+       created_at
+FROM tokens
+ORDER BY created_at DESC;
+"
+
+# Verify a token exists
+PGPASSWORD=pg123 psql -h localhost -U postgres -d smart_expense -tAc "
+SELECT telegram_id FROM tokens
+WHERE token = 'your-token-here';
+"
+
+# Delete a token (revoke access)
+PGPASSWORD=pg123 psql -h localhost -U postgres -d smart_expense -c "
+DELETE FROM tokens WHERE token = 'your-token-here';
+"
+```
+
+### Security Notes
+
+- **Minimum token length:** 16 characters (script enforces this)
+- **Maximum token length:** 128 characters (script enforces this)
+- **Default length:** 32 characters (128 bits of entropy — sufficient for most use cases)
+- **Token format:** Alphanumeric (`[a-zA-Z0-9]+`) — URL-safe, no special chars
+- **Uniqueness:** `token` is the primary key; collisions are rejected by the DB
+- **Revocation:** Delete the row from `tokens` to invalidate a token
+
+### Reference
+
+See [`references/token-authentication.md`](references/token-authentication.md) for script internals, manual SQL equivalents, exit codes, and scripting patterns.
 
 ---
 
@@ -518,126 +649,6 @@ LIMIT 3;"
    ```sql
    WHERE transaction_date >= '2025-01-01' AND transaction_date < '2025-02-01'
    ```
-   NOT `BETWEEN '2025-01-01' AND '2025-01-31'` (misses Jan 31 data if time component exists, though `DATE` type is safe — still a good habit).
-
----
-
----
-
-## Financial Advisor AI
-
-Generate AI-powered financial insights using your Hermes LLM configuration.
-
-### Quick Start
-
-```bash
-# Analyze single transaction
-python3 scripts/financial_advisor.py comment <transaction_id>
-
-# Monthly analysis
-python3 scripts/financial_advisor.py analyze-month <year> <month>
-
-# Trend analysis
-python3 scripts/financial_advisor.py analyze-trends --months 3
-
-# Batch generate comments
-python3 scripts/financial_advisor.py generate-all-comments
-```
-
-### Features
-
-| Feature | Command | Description |
-|---------|---------|-------------|
-| **Transaction Comment** | `comment <id>` | Personalized advice for single transaction |
-| **Monthly Summary** | `analyze-month <y> <m>` | Monthly spending insights & budget recommendations |
-| **Trend Analysis** | `analyze-trends` | Multi-month pattern detection |
-| **Batch Processing** | `generate-all-comments` | Process all un-commented transactions |
-
-### Examples
-
-```bash
-# Comment on Indomaret receipt
-python3 scripts/financial_advisor.py comment f9a0be93-a0ea-4d6e-b3aa-dcbcbc2f0f7e
-
-# September 2024 analysis
-python3 scripts/financial_advisor.py analyze-month 2024 9
-
-# 3-month trend
-python3 scripts/financial_advisor.py analyze-trends --months 3
-```
-
-### Sample Output
-
-**Transaction Comment:**
-```
-Transaksi senilai Rp75.200 ini mencampur belanja makanan dan kebutuhan rumah tangga 
-di minimarket. Untuk barang seperti pembersih, lebih hemat membelinya di supermarket 
-besar dengan harga lebih murah. Selalu bawa tas belanja sendiri untuk menghindari biaya 
-kantong plastik sekaligus mendapat potongan harga.
-
-Sentiment: neutral
-Actions: [Beli kebutuhan rumah tangga di supermarket besar alih-alih minimarket, 
-         Selalu bawa tas belanja sendiri untuk hemat biaya plastik]
-```
-
-**Monthly Insights:**
-```
-Pada bulan September 2016, total pengeluaran Anda mencapai Rp67.800 dengan pemasukan Rp0, 
-sehingga terjadi defisit sebesar Rp67.800. Belanja dan makanan/minuman masing-masing 
-menghabiskan Rp33.900. Meskipun jumlah transaksi hanya 2, pola ini menunjukkan perlunya 
-perencanaan keuangan yang lebih baik.
-
-Savings opportunity: Anda bisa menghemat dengan mengurangi frekuensi belanja di Indomaret, 
-misalnya memasak di rumah untuk menggantikan makanan/minuman yang dibeli.
-
-⚠️  Pengeluaran Rp67.800 tanpa pemasukan sangat berisiko.
-```
-
-### Database Integration
-
-Comments are stored in `llm_comment` column:
-
-```bash
-# Check transactions with comments
-PGPASSWORD=pg123 psql -h localhost -U postgres -d smart_expense -c "
-SELECT merchant, amount, llm_comment 
-FROM transactions 
-WHERE llm_comment IS NOT NULL 
-LIMIT 3;"
-```
-
-### When to Use
-
-- ✅ After adding new receipts/transactions
-- ✅ At month-end for budget review
-- ✅ Quarterly for trend analysis
-- ✅ When user asks "How am I doing financially?"
-
----
-
-## Verification Checklist
-
-- [ ] Connection works: `PGPASSWORD=pg123 psql -h localhost -U postgres -d smart_expense -c "SELECT 1;"`
-- [ ] Can list categories: `SELECT COUNT(*) FROM categories;` → should return 15
-- [ ] Can insert a test transaction and verify it appears
-- [ ] Can generate monthly report without errors
-- [ ] Can clean up test data after verification
-- [ ] **Receipt parsing**: LLM endpoint accessible and vision-capable
-- [ ] **Receipt parsing**: `parse_receipt_llm.py` works with test image
-
----
-
----
-
-## Receipt / Nota Scanning
-
-Detect and extract transaction data from photos of receipts (struk belanja, nota restoran, invoice, dll.). **Two approaches available:**
-
-| Approach | Best For | Accuracy | Speed |
-|----------|----------|----------|-------|
-| **LLM Vision (Recommended)** | Photos, scanned docs, complex receipts | ⭐⭐⭐⭐⭐ | ~2-5s |
-| **Tesseract OCR + Regex** | Simple receipts, offline, fast | ⭐⭐⭐ | <1s |
-
 ---
 
 ## Receipt / Nota Scanning
@@ -810,7 +821,69 @@ User sends receipt photo
 
 ---
 
-## One-Shot Recipes
+## Migration Patterns
+
+### V002: Table Naming Convention
+**Pattern:** Rename singular tables to plural for consistency.
+
+```sql
+ALTER TABLE category RENAME TO categories;
+ALTER TABLE transactions 
+  RENAME CONSTRAINT transactions_category_id_fkey 
+  TO transactions_categories_id_fkey;
+```
+
+**Pitfall:** PostgreSQL constraint names must be explicitly renamed (not auto-updated).
+
+### V003: LLM Comment Column
+**Pattern:** Add `llm_comment` + `llm_comment_at` for AI-generated insights.
+
+```sql
+ALTER TABLE transactions ADD COLUMN llm_comment TEXT;
+ALTER TABLE transactions ADD COLUMN llm_comment_at TIMESTAMPTZ;
+CREATE INDEX idx_transactions_llm_comment
+ON transactions(id) WHERE llm_comment IS NOT NULL;
+```
+
+**Why:** Enables fast filtering for transactions with AI advice.
+
+### V004: Multi-User Support
+**Pattern:** Add `telegram_id` for user isolation.
+
+```sql
+ALTER TABLE transactions ADD COLUMN telegram_id BIGINT;
+CREATE INDEX idx_transactions_telegram_id
+ON transactions(telegram_id) WHERE telegram_id IS NOT NULL;
+```
+
+**Default:** Set to user's Telegram ID (e.g., 552378634) on insert.
+
+**Query Pattern:** Always filter by `telegram_id` in multi-user scenarios.
+
+### UP/DOWN Migration Template
+
+```sql
+-- ==============================================================
+-- Migration: VXXX__description
+-- Description: What changed and why
+-- Applied at: YYYY-MM-DD HH:MM:SS UTC
+-- ==============================================================
+
+BEGIN;
+
+-- UP changes here
+
+COMMIT;
+
+/*
+-- DOWN (rollback)
+BEGIN;
+
+-- Rollback changes here
+
+COMMIT;
+*/
+```
 
 ### Receipt Parsing with Hermes LLM (Recommended)
 
