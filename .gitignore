@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Project specific
+data/
+*.sqlite3
+*.pdf
+temp_*
+Smart_Expense_Auditor_Agent_OpenClaw2026.md.crdownload
+extract.py
+extracted.txt
