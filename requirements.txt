@@ -9,3 +9,4 @@ numpy==1.26.0
 python-dotenv==1.0.0
 pypdf==4.2.0
 google-generativeai
+python-telegram-bot

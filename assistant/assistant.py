@@ -4,6 +4,7 @@ from datetime import datetime
 from tools.tool_registry import get_registry
 from assistant.reasoner import ReasonerAssistant
 from assistant.asisten import RuleBasedAssistant
+from assistant.database import DatabaseManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ class AssistantAssistant:
         self.registry = get_registry()
         self.reasoner = ReasonerAssistant()
         self.validator = RuleBasedAssistant()
+        self.db = DatabaseManager()
         self.thinking_log: List[Dict[str, Any]] = []
         self.loop_count = 0
 
@@ -31,9 +33,12 @@ class AssistantAssistant:
         self.thinking_log.append(entry)
         logger.info(f"[{step}] {thought} -> {action}")
 
-    def run(self, image_path: str) -> Dict[str, Any]:
+    def run(self, image_path: str, user_id: str = "default") -> Dict[str, Any]:
         self.thinking_log = []
         self.loop_count = 0
+        
+        # Fetch Goal context
+        goal_text = self.db.get_latest_goal(user_id)
         
         # STEP 1: OCR Extraction
         self._log_thinking(
@@ -66,10 +71,10 @@ class AssistantAssistant:
         # STEP 3: LLM Reasoner
         self._log_thinking(
             step="LLM_THINKING",
-            thought="Applying Personal Budget Rules and categorization.",
+            thought=f"Applying Personal Budget Rules and categorization. Goal context: {goal_text[:20]}...",
             action="Calling tool: gemini_reasoner"
         )
-        llm_result = self.reasoner.run(ocr_result, final_calc_result)
+        llm_result = self.reasoner.run(ocr_result, final_calc_result, goal_text=goal_text)
         
         # STEP 4: Rule-Based Validation (Safety Net)
         self._log_thinking(
@@ -88,6 +93,13 @@ class AssistantAssistant:
         
         final_result["thinking_log"] = self.thinking_log
         final_result["loop_count"] = self.loop_count
+        
+        # SAVE TO DATABASE
+        try:
+            self.db.save_expense(final_result)
+            logger.info("[DATABASE] Expense saved successfully.")
+        except Exception as e:
+            logger.error(f"[DATABASE] Error saving expense: {str(e)}")
         
         return final_result
 

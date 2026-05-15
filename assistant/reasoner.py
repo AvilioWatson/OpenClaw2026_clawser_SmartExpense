@@ -33,10 +33,10 @@ class ReasonerAssistant:
                 return f.read()
         return "You are an Expense Auditor Assistant."
 
-    def run(self, extracted_data: Dict[str, Any], calc_result: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, extracted_data: Dict[str, Any], calc_result: Dict[str, Any], goal_text: str = "") -> Dict[str, Any]:
         logger.info(f"[{self.phase_name}] Starting thinking with Gemini...")
         
-        user_prompt = self._build_user_prompt(extracted_data, calc_result)
+        user_prompt = self._build_user_prompt(extracted_data, calc_result, goal_text)
         
         try:
             # Gemini 1.5 Flash supports system instruction in the model constructor or in the prompt
@@ -69,8 +69,11 @@ class ReasonerAssistant:
                 "total_match": calc_result.get("match_status", False)
             }
 
-    def _build_user_prompt(self, extracted: Dict[str, Any], calc: Dict[str, Any]) -> str:
+    def _build_user_prompt(self, extracted: Dict[str, Any], calc: Dict[str, Any], goal_text: str = "") -> str:
+        goal_context = f"\nUSER FINANCIAL GOAL: {goal_text}\n(Jika pengeluaran ini menghambat goal tersebut, berikan omelan/nasehat yang tegas dalam field 'insights'.)\n" if goal_text else ""
+        
         return f"""
+        {goal_context}
         Merchant: {extracted.get('merchant', 'Unknown')}
         Date: {extracted.get('date', 'Unknown')}
         Items: {json.dumps(extracted.get('items', []), indent=2)}
