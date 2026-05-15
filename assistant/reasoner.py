@@ -1,4 +1,4 @@
-import google.generativeai as genai
+import anthropic
 import json
 import os
 import logging
@@ -13,16 +13,16 @@ logger = logging.getLogger(__name__)
 
 class ReasonerAssistant:
     """
-    LLM Thinking Engine using Gemini Flash.
+    LLM Thinking Engine using Anthropic Claude.
     Applies Personal Budget Rules and categorization.
     """
-    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash"):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+    def __init__(self, api_key: str = None, model: str = "claude-3-5-sonnet-20240620"):
+        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         if not self.api_key:
-            raise ValueError("Gemini API key required.")
+            raise ValueError("Anthropic API key required.")
         
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(model)
+        self.client = anthropic.Anthropic(api_key=self.api_key)
+        self.model_name = model
         self.phase_name = "REASON"
         self.system_prompt = self._load_system_prompt()
 
@@ -49,29 +49,38 @@ class ReasonerAssistant:
         return "\n\n".join(instructions) if instructions else "You are a Disciplined Personal Expense Auditor."
 
     def run(self, extracted_data: Dict[str, Any], calc_result: Dict[str, Any], goal_text: str = "") -> Dict[str, Any]:
-        logger.info(f"[{self.phase_name}] Starting thinking with Gemini...")
+        logger.info(f"[{self.phase_name}] Starting thinking with Claude...")
         
         user_prompt = self._build_user_prompt(extracted_data, calc_result, goal_text)
         
         try:
-            # Gemini 1.5 Flash supports system instruction in the model constructor or in the prompt
-            # For simplicity, we combine system prompt and user prompt
-            full_prompt = f"{self.system_prompt}\n\nDATA TO ANALYZE:\n{user_prompt}\n\nJSON OUTPUT:"
-            
-            response = self.model.generate_content(
-                full_prompt,
-                generation_config=genai.types.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2
-                )
+            # Anthropic Message API
+            message = self.client.messages.create(
+                model=self.model_name,
+                max_tokens=4096,
+                temperature=0.2,
+                system=self.system_prompt,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"DATA TO ANALYZE:\n{user_prompt}\n\nPlease provide the audit result in strict JSON format as specified."
+                    }
+                ]
             )
             
-            content = response.text
+            content = message.content[0].text
+            
+            # Extract JSON if LLM adds markdown wrapper
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+                
             result = json.loads(content)
             
             # Metadata
             result['phase'] = self.phase_name
-            result['model_used'] = "gemini-1.5-flash"
+            result['model_used'] = self.model_name
             result['timestamp'] = datetime.now().isoformat()
             
             return result
@@ -99,3 +108,4 @@ class ReasonerAssistant:
         Match: {calc.get('match_status')}
         Thinking: {calc.get('thinking', '')}
         """
+

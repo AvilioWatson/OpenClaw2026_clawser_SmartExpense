@@ -72,7 +72,7 @@ class AssistantAssistant:
         self._log_thinking(
             step="LLM_THINKING",
             thought=f"Applying Personal Budget Rules and categorization. Goal context: {goal_text[:20]}...",
-            action="Calling tool: gemini_reasoner"
+            action="Calling tool: claude_reasoner"
         )
         llm_result = self.reasoner.run(ocr_result, final_calc_result, goal_text=goal_text)
         
