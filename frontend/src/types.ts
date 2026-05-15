@@ -31,3 +31,39 @@ export interface Transaction {
   category_icon: string | null
   category_color: string | null
 }
+
+export interface TransactionListResponse {
+  items: Transaction[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface TransactionSummary {
+  total_income: number
+  total_expense: number
+  net: number
+  count: number
+}
+
+export interface CategoryBreakdown {
+  category_name: string
+  category_icon: string | null
+  category_color: string | null
+  type: string
+  total: number
+}
+
+export interface TransactionFilters {
+  year?: number
+  month?: number
+  from?: string
+  to?: string
+  type?: string
+  category_id?: string
+  q?: string
+  sort?: string
+  order?: string
+  limit?: number
+  offset?: number
+}

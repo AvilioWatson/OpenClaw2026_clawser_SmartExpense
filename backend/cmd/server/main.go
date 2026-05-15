@@ -67,6 +67,8 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(authmw.Auth(jwtService))
 			r.Get("/transactions", transactionsHandler.List)
+			r.Get("/transactions/summary", transactionsHandler.Summary)
+			r.Get("/transactions/by-category", transactionsHandler.ByCategory)
 			r.Get("/categories", categoriesHandler.List)
 		})
 	})

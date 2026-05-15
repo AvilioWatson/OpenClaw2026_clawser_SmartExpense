@@ -22,6 +22,28 @@ type Category struct {
 	DisplayOrder int     `json:"display_order"`
 }
 
+type TransactionListResponse struct {
+	Items  []Transaction `json:"items"`
+	Total  int           `json:"total"`
+	Limit  int           `json:"limit"`
+	Offset int           `json:"offset"`
+}
+
+type TransactionSummary struct {
+	TotalIncome  float64 `json:"total_income"`
+	TotalExpense float64 `json:"total_expense"`
+	Net          float64 `json:"net"`
+	Count        int     `json:"count"`
+}
+
+type CategoryBreakdown struct {
+	CategoryName  string  `json:"category_name"`
+	CategoryIcon  *string `json:"category_icon"`
+	CategoryColor *string `json:"category_color"`
+	Type          string  `json:"type"`
+	Total         float64 `json:"total"`
+}
+
 type Transaction struct {
 	ID              string     `json:"id"`
 	Amount          float64    `json:"amount"`

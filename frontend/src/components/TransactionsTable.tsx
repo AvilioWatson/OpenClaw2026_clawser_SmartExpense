@@ -11,11 +11,18 @@ function formatAmount(amount: number, type: string): string {
 
 interface Props {
   transactions: Transaction[]
+  hasFilters?: boolean
 }
 
-export default function TransactionsTable({ transactions }: Props) {
+export default function TransactionsTable({ transactions, hasFilters }: Props) {
   if (transactions.length === 0) {
-    return <p className="empty">No transactions found.</p>
+    return (
+      <p className="empty">
+        {hasFilters
+          ? 'No transactions match your filters. Try adjusting the date range or search.'
+          : 'No transactions found.'}
+      </p>
+    )
   }
 
   return (
@@ -30,6 +37,7 @@ export default function TransactionsTable({ transactions }: Props) {
             <th>Description</th>
             <th>Merchant</th>
             <th>Payment</th>
+            <th>AI comment</th>
           </tr>
         </thead>
         <tbody>
@@ -51,6 +59,13 @@ export default function TransactionsTable({ transactions }: Props) {
               <td>{t.description ?? '—'}</td>
               <td>{t.merchant ?? '—'}</td>
               <td>{t.payment_method ?? '—'}</td>
+              <td className="llm-comment" title={t.llm_comment ?? undefined}>
+                {t.llm_comment ? (
+                  <span className="llm-comment-text">{t.llm_comment}</span>
+                ) : (
+                  '—'
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
