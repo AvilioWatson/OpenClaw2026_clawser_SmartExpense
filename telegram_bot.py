@@ -4,12 +4,13 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters, CommandHandler
 from dotenv import load_dotenv
 from assistant.assistant import AssistantAssistant
-from tools.pdf_tool import PDFTool
 from tools.ocr_tool import OCRTool
 from tools.calculator_tool import CalculatorTool
 from tools.tool_registry import get_registry
 
-load_dotenv()
+# Explicitly find the .env file in the current directory
+env_path = os.path.join(os.path.dirname(__file__), ".env")
+load_dotenv(dotenv_path=env_path)
 
 # Logging setup
 logging.basicConfig(
@@ -23,11 +24,8 @@ if "ocr_extractor" not in registry.list_tools():
     registry.register(OCRTool())
 if "calculator" not in registry.list_tools():
     registry.register(CalculatorTool())
-if "pdf_reporter" not in registry.list_tools():
-    registry.register(PDFTool())
 
 assistant = AssistantAssistant()
-pdf_tool = registry.get("pdf_reporter")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -87,24 +85,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response_text += f"❗ **Perhatian:** {result['attention_reason']}\n\n"
             
         if result.get('insights'):
-            response_text += "💡 **Insights:**\n"
-            for ins in result['insights'][:3]:
+            response_text += "💡 **INSIGHTS & ADVICE:**\n"
+            for ins in result['insights']:
                 response_text += f"• {ins}\n"
         
-        # Send text result
+        response_text += "\n🛒 **DETAIL BARANG:**\n"
+        for item in result.get('items', []):
+            flag_emoji = "⚠️" if item.get('flag') else ""
+            response_text += f"• {item['name']} - Rp {item['price']:,} {flag_emoji}\n"
+            if item.get('budget_reason'):
+                response_text += f"  └ _Reason: {item['budget_reason']}_\n"
+
+        # Send comprehensive text result
         await status_msg.edit_text(response_text, parse_mode='Markdown')
-        
-        # Generate PDF Report
-        report_path = os.path.join(temp_dir, f"report_{update.effective_user.id}.pdf")
-        pdf_tool.run(result, output_path=report_path)
-        
-        # Send PDF
-        with open(report_path, 'rb') as pdf_file:
-            await update.message.reply_document(
-                document=pdf_file,
-                filename=f"Audit_{result.get('merchant', 'Struk')}.pdf",
-                caption="Ini adalah laporan analisis lengkap untuk struk Anda."
-            )
             
     except Exception as e:
         logging.error(f"Error handling photo: {str(e)}")

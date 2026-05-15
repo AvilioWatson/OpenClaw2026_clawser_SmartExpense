@@ -3,7 +3,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 from tools.tool_registry import get_registry
 from assistant.reasoner import ReasonerAssistant
-from assistant.asisten import RuleBasedAssistant
+from tools.budget_tool import BudgetTool
 from assistant.database import DatabaseManager
 
 logging.basicConfig(level=logging.INFO)
@@ -17,7 +17,7 @@ class AssistantAssistant:
         self.max_loops = max_loops
         self.registry = get_registry()
         self.reasoner = ReasonerAssistant()
-        self.validator = RuleBasedAssistant()
+        self.validator = BudgetTool()
         self.db = DatabaseManager()
         self.thinking_log: List[Dict[str, Any]] = []
         self.loop_count = 0

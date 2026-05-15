@@ -16,7 +16,7 @@ class ReasonerAssistant:
     LLM Thinking Engine using Gemini Flash.
     Applies Personal Budget Rules and categorization.
     """
-    def __init__(self, api_key: str = None, model: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash"):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("Gemini API key required.")
@@ -27,11 +27,26 @@ class ReasonerAssistant:
         self.system_prompt = self._load_system_prompt()
 
     def _load_system_prompt(self) -> str:
-        prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompts", "system_prompt.txt")
+        instructions = []
+        # Paths to mandatory files
+        base_dir = os.path.join(os.path.dirname(__file__), "..")
+        agents_path = os.path.join(base_dir, "AGENTS.md")
+        soul_path = os.path.join(base_dir, "SOUL.md")
+        prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "system_prompt.txt")
+
+        if os.path.exists(agents_path):
+            with open(agents_path, "r", encoding="utf-8") as f:
+                instructions.append(f"### AGENT DEFINITION ###\n{f.read()}")
+        
+        if os.path.exists(soul_path):
+            with open(soul_path, "r", encoding="utf-8") as f:
+                instructions.append(f"### AGENT SOUL/PERSONALITY ###\n{f.read()}")
+
         if os.path.exists(prompt_path):
             with open(prompt_path, "r", encoding="utf-8") as f:
-                return f.read()
-        return "You are an Expense Auditor Assistant."
+                instructions.append(f"### TECHNICAL FORMAT ###\n{f.read()}")
+
+        return "\n\n".join(instructions) if instructions else "You are a Disciplined Personal Expense Auditor."
 
     def run(self, extracted_data: Dict[str, Any], calc_result: Dict[str, Any], goal_text: str = "") -> Dict[str, Any]:
         logger.info(f"[{self.phase_name}] Starting thinking with Gemini...")

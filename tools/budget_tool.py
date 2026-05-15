@@ -1,11 +1,12 @@
 import logging
 from typing import Dict, Any, List
 from difflib import SequenceMatcher
+from tools.base_tool import BaseTool
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class RuleBasedAssistant:
+class BudgetTool(BaseTool):
     """
     Deterministic validation layer to ensure LLM consistency.
     Acts as a safety net for Personal Budget Rules.
@@ -37,7 +38,15 @@ class RuleBasedAssistant:
     }
 
     def __init__(self):
+        super().__init__(
+            name="budget_checker",
+            description="Check expenses against personal budget rules and limits",
+            version="1.0"
+        )
         self.phase_name = "VALIDATION"
+
+    def validate_input(self, data: Dict[str, Any] = None, **kwargs) -> bool:
+        return data is not None and "items" in data
 
     def run(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
