@@ -1,4 +1,6 @@
 import logging
+import json
+import os
 from typing import Dict, Any, List
 from datetime import datetime
 from tools.tool_registry import get_registry
@@ -46,43 +48,73 @@ class AssistantAssistant:
             thought="I need to read the receipt contents using OCR.",
             action="Calling tool: ocr_extractor"
         )
+        
+        # Fetch user's goal
+        goal_text = self.db.get_latest_goal(user_id)
+        
+        # STEP 1: Raw OCR Extraction
+        self._log_thinking(step="OCR", thought="Membaca teks dari gambar struk.", action="Running EasyOCR.")
         ocr_tool = self.registry.get("ocr_extractor")
-        ocr_result = ocr_tool.run(image_path=image_path)
+        ocr_raw = ocr_tool.run(image_path=image_path)
+        raw_text = ocr_raw.get("raw_text", "")
         
-        if not ocr_result.get("success"):
-            self._log_thinking(
-                step="OCR_FAILED",
-                thought="OCR failed to read the image.",
-                action="Stopping process.",
-                result=ocr_result.get("error", "Unknown error")
+        if not raw_text.strip():
+            return {
+                "status": "FAILED",
+                "insights": ["Gambar tidak terbaca atau teks terlalu buram."],
+                "merchant": "Tidak dikenal",
+                "calculated_total": 0
+            }
+
+        # STEP 2: LLM Data Structuring
+        self._log_thinking(step="PARSING", thought="Menyuruh AI merapikan teks mentah OCR.", action="Calling LLM Parser.")
+        
+        print(f"--- [DEBUG] Raw Text length: {len(raw_text)} characters ---")
+        
+        parse_prompt = (
+            "Extract receipt data from this raw OCR text into JSON.\n"
+            "RAW TEXT:\n"
+            f"{raw_text}\n\n"
+            "Output MUST be JSON with: 'merchant', 'date', 'items' (list), 'total' (int)."
+        )
+        
+        try:
+            parse_response = self.reasoner.client.chat.completions.create(
+                model=self.reasoner.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a receipt parser. Respond ONLY with JSON."},
+                    {"role": "user", "content": parse_prompt}
+                ],
+                response_format={"type": "json_object"}
             )
-            return {"status": "ERROR", "message": "OCR Failed", "thinking_log": self.thinking_log}
+            structured_data = json.loads(parse_response.choices[0].message.content)
+            print(f"--- [DEBUG] AI Structured Data: {structured_data} ---")
+        except Exception as e:
+            print(f"--- [ERROR] AI Parsing Failed: {str(e)} ---")
+            structured_data = ocr_raw
 
-        self._log_thinking(
-            step="OCR_SUCCESS",
-            thought=f"Extracted {ocr_result['item_count']} items from {ocr_result['merchant']}.",
-            action="Proceeding to mathematical verification.",
-            result=f"Items: {ocr_result['item_count']}, Stated Total: Rp {ocr_result['total']:,}"
-        )
+        # Validation: If still empty, something is wrong with OCR quality
+        if not structured_data.get("items") and structured_data.get("total", 0) == 0:
+            return {
+                "status": "FAILED",
+                "insights": ["AI tidak bisa menemukan barang atau total di struk ini. Pastikan foto jelas dan terang."],
+                "merchant": "Tidak terbaca",
+                "calculated_total": 0,
+                "raw_ocr_debug": raw_text[:200] + "..." # Send a bit of raw text for debugging
+            }
+ # Fallback to manual if LLM fails
 
-        # STEP 2: Calculator Verification (with Autonomous Loop)
-        final_calc_result = self._run_verification_loop(ocr_result["items"], ocr_result["total"])
+        # STEP 3: Calculator Verification (Cross-check prices)
+        self._log_thinking(step="CALCULATOR", thought="Memverifikasi hitungan harga.", action="Running CalculatorTool.")
+        final_calc_result = self._run_verification_loop(structured_data.get("items", []), structured_data.get("total", 0))
         
-        # STEP 3: LLM Reasoner
-        self._log_thinking(
-            step="LLM_THINKING",
-            thought=f"Applying Personal Budget Rules and categorization. Goal context: {goal_text[:20]}...",
-            action="Calling tool: claude_reasoner"
-        )
-        llm_result = self.reasoner.run(ocr_result, final_calc_result, goal_text=goal_text)
+        # STEP 4: LLM Audit (The "Nagging" / Persona part)
+        self._log_thinking(step="AUDIT", thought="Menganalisis pengeluaran berdasarkan aturan anggaran.", action="Calling Reasoner.")
+        llm_result = self.reasoner.run(structured_data, final_calc_result, goal_text=goal_text)
         
-        # STEP 4: Rule-Based Validation (Safety Net)
-        self._log_thinking(
-            step="RULE_VALIDATION",
-            thought="Ensuring strict budget rule enforcement.",
-            action="Calling tool: rule_engine"
-        )
+        # Final formatting
         final_result = self.validator.run(llm_result)
+        final_result['calculated_total'] = final_calc_result.get('calculated_total', 0)
         
         self._log_thinking(
             step="FINAL_STATUS",
@@ -143,3 +175,41 @@ class AssistantAssistant:
             result="Max loop reached."
         )
         return calc_result
+    def chat(self, user_text: str, user_id: str = "default") -> str:
+        """
+        Handles general conversation and financial advice.
+        """
+        goal_text = self.db.get_latest_goal(user_id)
+        
+        self._log_thinking(
+            step="CHAT",
+            thought=f"User asked a question. Goal context: {goal_text[:20]}...",
+            action="Calling LLM for response."
+        )
+        
+        # We reuse the reasoner but with a simplified prompt for chat
+        try:
+            # Identity is forced at the very top
+            chat_system_prompt = (
+                "PERINTAH KRITIKAL: Anda ADALAH 'Smart Expense Auditor'.\n"
+                "IDENTITAS ANDA BUKAN CLAUDE. JANGAN PERNAH MENYEBUT ANTHROPIC.\n"
+                "Tugas Anda: Menjadi pengawas keuangan yang tegas, cerewet, dan disiplin.\n"
+                "Gunakan Bahasa Indonesia yang kasual tapi pedas jika user boros.\n\n"
+                f"{self.reasoner.system_prompt}"
+            )
+            
+            response = self.reasoner.client.chat.completions.create(
+                model=self.reasoner.model_name,
+                messages=[
+                    {"role": "system", "content": chat_system_prompt},
+                    {"role": "user", "content": (
+                        "PENGINGAT: Jawablah sebagai Smart Expense Auditor (Auditor Keuangan Galak).\n"
+                        f"KONTEKS TARGET USER: {goal_text if goal_text else 'Belum ada target.'}\n\n"
+                        f"PERTANYAAN USER: {user_text}"
+                    )}
+                ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"[CHAT] Error: {str(e)}")
+            return "Maaf, saya sedang pusing memikirkan anggaran Anda. Bisa ulangi lagi?"

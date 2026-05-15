@@ -76,13 +76,18 @@ class OCRTool(BaseTool):
             img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
         
         image_np = np.array(img)
+        print(f"--- [OCR DEBUG] Memproses gambar: {image_path} ---")
         result = self.reader.readtext(image_np, detail=0, paragraph=False)
         raw_text = "\n".join(result)
+        
+        print(f"--- [RAW TEXT START] ---\n{raw_text}\n--- [RAW TEXT END] ---")
         
         structured_data = self._parse_receipt(raw_text)
         structured_data["success"] = True
         structured_data["raw_text"] = raw_text
         structured_data["tool_used"] = self.name
+        
+        print(f"--- [DEBUG] Parsed Data: Merchant={structured_data['merchant']}, Total={structured_data['total']} ---")
         
         return structured_data
 

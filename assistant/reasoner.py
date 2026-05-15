@@ -1,4 +1,4 @@
-import anthropic
+import openai
 import json
 import os
 import logging
@@ -13,22 +13,27 @@ logger = logging.getLogger(__name__)
 
 class ReasonerAssistant:
     """
-    LLM Thinking Engine using Anthropic Claude.
+    LLM Thinking Engine using Sumopod (OpenAI-compatible).
     Applies Personal Budget Rules and categorization.
     """
-    def __init__(self, api_key: str = None, model: str = "claude-3-5-sonnet-20240620"):
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError("Anthropic API key required.")
+    def __init__(self, api_key: str = None, model: str = "claude-sonnet-4-6", base_url: str = None):
+        self.api_key = api_key or os.getenv("SUMOPOD_API_KEY")
+        self.base_url = base_url or os.getenv("SUMOPOD_BASE_URL")
         
-        self.client = anthropic.Anthropic(api_key=self.api_key)
+        if not self.api_key:
+            raise ValueError("Sumopod API key required.")
+        
+        # Initialize OpenAI client for Sumopod compatibility
+        self.client = openai.OpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url if self.base_url else None
+        )
         self.model_name = model
         self.phase_name = "REASON"
         self.system_prompt = self._load_system_prompt()
 
     def _load_system_prompt(self) -> str:
         instructions = []
-        # Paths to mandatory files
         base_dir = os.path.join(os.path.dirname(__file__), "..")
         agents_path = os.path.join(base_dir, "AGENTS.md")
         soul_path = os.path.join(base_dir, "SOUL.md")
@@ -49,26 +54,23 @@ class ReasonerAssistant:
         return "\n\n".join(instructions) if instructions else "You are a Disciplined Personal Expense Auditor."
 
     def run(self, extracted_data: Dict[str, Any], calc_result: Dict[str, Any], goal_text: str = "") -> Dict[str, Any]:
-        logger.info(f"[{self.phase_name}] Starting thinking with Claude...")
+        logger.info(f"[{self.phase_name}] Starting thinking with Sumopod AI ({self.model_name})...")
         
         user_prompt = self._build_user_prompt(extracted_data, calc_result, goal_text)
         
         try:
-            # Anthropic Message API
-            message = self.client.messages.create(
+            # Use Chat Completion API (standard for proxies)
+            response = self.client.chat.completions.create(
                 model=self.model_name,
-                max_tokens=4096,
                 temperature=0.2,
-                system=self.system_prompt,
                 messages=[
-                    {
-                        "role": "user",
-                        "content": f"DATA TO ANALYZE:\n{user_prompt}\n\nPlease provide the audit result in strict JSON format as specified."
-                    }
-                ]
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": f"DATA TO ANALYZE:\n{user_prompt}\n\nPlease provide the audit result in strict JSON format."}
+                ],
+                response_format={"type": "json_object"} if "gpt-4" in self.model_name or "gpt-3.5" in self.model_name else None
             )
             
-            content = message.content[0].text
+            content = response.choices[0].message.content
             
             # Extract JSON if LLM adds markdown wrapper
             if "```json" in content:
@@ -86,7 +88,6 @@ class ReasonerAssistant:
             return result
         except Exception as e:
             logger.error(f"[{self.phase_name}] Error: {str(e)}")
-            # Fallback result if LLM fails
             return {
                 "status": "REVIEW",
                 "insights": [f"Thinking failed: {str(e)}"],

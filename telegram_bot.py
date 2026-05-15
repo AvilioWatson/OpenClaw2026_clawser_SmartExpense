@@ -19,13 +19,16 @@ logging.basicConfig(
 )
 
 # Initialize Assistant
+print("Initializing tools... (EasyOCR might take a moment to load model)")
 registry = get_registry()
 if "ocr_extractor" not in registry.list_tools():
     registry.register(OCRTool())
 if "calculator" not in registry.list_tools():
     registry.register(CalculatorTool())
 
+print("Initializing Brain (AssistantAssistant)...")
 assistant = AssistantAssistant()
+print("Brain Ready.")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -34,38 +37,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "berdasarkan Aturan Anggaran Pribadi Anda."
     )
 
+from assistant.database import DatabaseManager
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    user_id = str(update.effective_user.id)
-    
-    # Simple check if user is stating a goal
-    if any(keyword in user_text.lower() for keyword in ["mau beli", "ingin beli", "target", "tabung"]):
-        db_manager = DatabaseManager()
-        db_manager.save_goal(user_id, user_text)
-        await update.message.reply_text(
-            f"📝 Baiklah, saya catat target Anda: '{user_text}'.\n\n"
-            "Saya akan awasi struk belanja Anda agar tetap sejalan dengan target ini! 🧐"
-        )
-    else:
-        await update.message.reply_text("Kirimkan foto struk belanja untuk saya audit, atau ceritakan target finansial Anda (misal: 'Saya mau beli sepatu').")
+    try:
+        user_text = update.message.text
+        user_id = str(update.effective_user.id)
+        print(f"--- [DEBUG] Pesan Teks Diterima dari {user_id}: {user_text} ---")
+        
+        # Simple check if user is stating a goal
+        if any(keyword in user_text.lower() for keyword in ["mau beli", "ingin beli", "target", "tabung"]):
+            db_manager = DatabaseManager()
+            db_manager.save_goal(user_id, user_text)
+            await update.message.reply_text(
+                f"📝 Baiklah, saya catat target Anda: '{user_text}'.\n\n"
+                "Saya akan awasi struk belanja Anda agar tetap sejalan dengan target ini! 🧐"
+            )
+        else:
+            # General Chat / Questions
+            response = assistant.chat(user_text, user_id=user_id)
+            await update.message.reply_text(response)
+    except Exception as e:
+        print(f"--- [ERROR] Gagal di handle_message: {str(e)} ---")
+        await update.message.reply_text("Duh, ada error nih pas mau jawab. Coba lagi ya.")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Get the highest resolution photo
-    photo_file = await update.message.photo[-1].get_file()
-    user_id = str(update.effective_user.id)
-    
-    # Send "Thinking" message
-    status_msg = await update.message.reply_text("🤖 Sedang menganalisis struk... Mohon tunggu sebentar.")
-    
-    # Download photo
-    temp_dir = "data"
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
-        
-    photo_path = os.path.join(temp_dir, f"user_{update.effective_user.id}.jpg")
-    await photo_file.download_to_drive(photo_path)
-    
     try:
+        # Get the highest resolution photo
+        photo_file = await update.message.photo[-1].get_file()
+        user_id = str(update.effective_user.id)
+        print(f"--- [DEBUG] Foto Diterima dari {user_id} ---")
+        
+        # Send "Thinking" message
+        status_msg = await update.message.reply_text("🤖 Sedang menganalisis struk... Mohon tunggu sebentar.")
+        
+        # Download photo
+        temp_dir = "data"
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
+            
+        photo_path = os.path.join(temp_dir, f"user_{update.effective_user.id}.jpg")
+        await photo_file.download_to_drive(photo_path)
+        
         # Run Assistant with user_id to fetch goals
         result = assistant.run(photo_path, user_id=user_id)
         
@@ -100,13 +113,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(response_text, parse_mode='Markdown')
             
     except Exception as e:
-        logging.error(f"Error handling photo: {str(e)}")
-        await status_msg.edit_text(f"❌ Maaf, terjadi kesalahan saat menganalisis: {str(e)}")
+        print(f"--- [ERROR] Gagal di handle_photo: {str(e)} ---")
+        await update.message.reply_text(f"❌ Maaf, terjadi kesalahan saat menganalisis: {str(e)}")
     
     finally:
         # Cleanup
-        if os.path.exists(photo_path):
+        if 'photo_path' in locals() and os.path.exists(photo_path):
             os.remove(photo_path)
+
+async def debug_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info(f"--- UPDATE RECEIVED ---")
+    logging.info(f"Update ID: {update.update_id}")
+    if update.message:
+        logging.info(f"From User: {update.effective_user.first_name} (@{update.effective_user.username})")
+        logging.info(f"Content: {update.message.text if update.message.text else '[Attachment]'}")
 
 if __name__ == '__main__':
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -118,6 +138,9 @@ if __name__ == '__main__':
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        
+        # Catch-all for debugging
+        app.add_handler(MessageHandler(filters.ALL, debug_all_updates), group=1)
         
         print("Bot Telegram sedang berjalan...")
         app.run_polling()
