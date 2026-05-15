@@ -11,7 +11,6 @@
 - 🤖 **AI Financial Advisor**: Receive personalized insights and nagging advice on your spending habits.
 - 📊 **Interactive Dashboard**: View your spending patterns with beautiful charts, categories, and filters.
 - 🗄️ **Secure Database**: Powered by PostgreSQL with full CRUD capabilities and transaction history.
-- 🔗 **Clawser/Hermes Integration**: Seamlessly integrated into the Clawser ecosystem as a specialized skill.
 
 ---
 
